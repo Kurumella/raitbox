@@ -1,0 +1,6 @@
+# Runtime deps for the RaitBox agent server baked into a Lambda MicroVM image.
+# (server.py itself only needs fastapi + a Pydantic BaseModel + an ASGI server;
+# code execution uses the Python stdlib.)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2

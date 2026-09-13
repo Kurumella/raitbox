@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raitbox"
+version = "0.1.0"
+description = "E2B-compatible agent sandbox SDK backed by AWS Lambda MicroVMs and Bedrock AgentCore"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "RaitBox contributors" }]
+keywords = ["e2b", "sandbox", "agent", "lambda", "microvm", "bedrock", "agentcore"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+dependencies = [
+    "boto3>=1.43",
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+# Persistent WebSocket shell for the agentcore-runtime backend.
+runtime = ["bedrock-agentcore>=0.1"]
+# Dependencies for the in-VM agent server baked into a Lambda MicroVM image.
+server = ["fastapi>=0.110", "uvicorn>=0.29"]
+# Expose sandboxes to MCP clients (Claude Desktop, etc.) via `python -m raitbox.mcp`.
+mcp = ["mcp>=1.2"]
+# Dependencies for the LangGraph + Bedrock example (examples/langgraph_*).
+# Uses the Bedrock OpenAI-compatible Responses API via langchain-openai.
+examples = ["langgraph>=0.2", "langchain-openai>=0.2", "langchain-core>=0.3", "openai>=1.40"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "fastapi>=0.110",
+    "boto3-stubs[bedrock-agentcore,s3]>=1.43",
+]
+
+[project.urls]
+Homepage = "https://github.com/raitbox/raitbox"
+Repository = "https://github.com/raitbox/raitbox"
+Issues = "https://github.com/raitbox/raitbox/issues"
+Changelog = "https://github.com/raitbox/raitbox/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/raitbox/raitbox/blob/main/docs/CONCEPTS.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["raitbox*"]
+
+[tool.setuptools.package-data]
+# Ship the PEP 561 typing marker and the MicroVM image build context.
+raitbox = ["py.typed"]
+"raitbox.agent_server" = ["Dockerfile", "requirements.txt"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that call real AWS APIs (require credentials; run explicitly with -m integration)",
+]
+addopts = "-m 'not integration'"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PLW", "BLE", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use asserts, ad-hoc fakes, long fixture lines, no production hardening.
+"tests/**" = ["S", "BLE", "PLW", "B", "E501"]
+# The agent server runs trusted commands inside the sandbox VM — the sandbox
+# boundary IS the isolation, so subprocess/exec lints don't apply.
+"src/raitbox/agent_server/**" = ["S602", "S603", "S604", "S607", "PLW1510"]
+# atexit reclamation is intentionally best-effort during interpreter shutdown.
+"src/raitbox/core/session_pool.py" = ["BLE001", "S110"]
+# S108: paths like /tmp are inside the remote sandbox VM, not the local host.
+"src/raitbox/backends/microvm.py" = ["BLE001"]
+"src/raitbox/backends/agentcore_runtime.py" = ["S108"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+files = ["src/raitbox"]

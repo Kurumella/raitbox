@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Treat notebooks as generated/vendored-ish for language stats; still diffable.
+*.ipynb linguist-language=Python
+
+# Binary-ish
+*.png binary
+*.zip binary
