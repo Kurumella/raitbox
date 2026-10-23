@@ -17,6 +17,7 @@ _BACKENDS: dict[str, str] = {
     "agentcore-ci": "raitbox.backends.agentcore_ci:AgentCoreCodeInterpreterBackend",
     "agentcore-runtime": "raitbox.backends.agentcore_runtime:AgentCoreRuntimeBackend",
     "microvm": "raitbox.backends.microvm:MicroVMBackend",
+    "dunefield": "raitbox.backends.dunefield:DunefieldBackend",
 }
 
 

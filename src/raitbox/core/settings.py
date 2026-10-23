@@ -23,6 +23,10 @@ _ALIASES = {
     "microvm": "microvm",
     "lambda-microvm": "microvm",
     "lambda": "microvm",
+    "dunefield": "dunefield",
+    "eks": "dunefield",
+    "k8s": "dunefield",
+    "gvisor": "dunefield",
 }
 
 

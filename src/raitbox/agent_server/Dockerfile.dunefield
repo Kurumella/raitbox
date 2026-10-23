@@ -1,0 +1,27 @@
+# RaitBox agent server image for Dunefield sandboxes (gVisor Pods on EKS).
+# Runs as root inside the gVisor sandbox, matching the MicroVM backend (Dunefield ADR-0028): gVisor is
+# the isolation boundary, all Linux capabilities are dropped, privilege escalation is disabled, and the
+# Pod has no service-account token and no network egress. Listens on the Pod network only (port 8080 is
+# reachable solely from the Dunefield Sandbox Router, enforced by NetworkPolicy).
+FROM public.ecr.aws/docker/library/python:3.12-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git procps ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -m 0755 /workspace   # root-owned: the sandbox runs as root with all capabilities dropped
+
+WORKDIR /opt/raitbox
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+# Common tooling for code-execution and agent workloads (data analysis, tests, language server)
+RUN pip install --no-cache-dir numpy pandas matplotlib pytest python-lsp-server
+COPY server.py ./raitbox_agent_server/server.py
+RUN touch ./raitbox_agent_server/__init__.py
+
+ENV PYTHONPATH=/opt/raitbox \
+    PYTHONUNBUFFERED=1 \
+    MPLBACKEND=Agg \
+    RAITBOX_PLATFORM=k8s
+WORKDIR /workspace
+EXPOSE 8080
+CMD ["python3", "-m", "uvicorn", "raitbox_agent_server.server:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]
