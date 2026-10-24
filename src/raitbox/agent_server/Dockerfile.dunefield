@@ -35,3 +35,10 @@ ENV PYTHONPATH=/opt/raitbox \
 WORKDIR /workspace
 EXPOSE 8080
 CMD ["python3", "-m", "uvicorn", "raitbox_agent_server.server:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]
+
+# Dunefield template network profile (read by the template pipeline; spec 6.6). Default: no egress.
+ARG DUNEFIELD_NETWORK=none
+ARG DUNEFIELD_EGRESS_ALLOW=
+LABEL dunefield.network="${DUNEFIELD_NETWORK}" dunefield.egress.allow="${DUNEFIELD_EGRESS_ALLOW}"
+ARG DUNEFIELD_MODELS=
+LABEL dunefield.models="${DUNEFIELD_MODELS}"
