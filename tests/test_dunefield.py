@@ -50,6 +50,9 @@ class FakeRouter:
     def get(self, path, **kw):
         return self.request("GET", path, **kw)
 
+    def _auth(self):
+        return "Dunefield-IAM v1.token"
+
 
 def test_lifecycle_through_router():
     router = FakeRouter()
@@ -87,3 +90,11 @@ def test_token_signs_audience_header():
     assert q["Action"] == ["GetCallerIdentity"]
     assert "x-dunefield-audience" in q["X-Amz-SignedHeaders"][0].split(";")
     assert int(q["X-Amz-Expires"][0]) <= 900
+
+
+def test_get_host_and_preview_link_use_router_port_route():
+    router = FakeRouter()
+    with Sandbox.create(template="python-agent:v1", backend="dunefield", client=router, timeout=600) as sbx:
+        assert sbx.get_host(8000) == "http://127.0.0.1:8443/v1/sandboxes/sbx-test-1/ports/8000"
+        link = sbx.get_preview_link(8000)
+        assert link.url.endswith("/ports/8000") and link.headers["X-aws-proxy-auth"] == "Dunefield-IAM v1.token"

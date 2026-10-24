@@ -122,7 +122,12 @@ class DunefieldBackend(MicroVMBackend):
         self._control.request("PATCH", f"/v1/sandboxes/{self._microvm_id}", json={"timeout": int(timeout)})
 
     def get_host(self, port: int) -> str:
-        raise NotSupportedError("dunefield: get_host is not available yet (planned: IAM-gated /v1/sandboxes/{id}/ports)")
+        """Base URL for a port in the sandbox, served by the Sandbox Router (needs a Dunefield-IAM token)."""
+        return f"{self._control.base_url.rstrip('/')}/v1/sandboxes/{self._microvm_id}/ports/{int(port)}"
 
     def preview_link(self, port: int, expires_in_minutes: int = 30):
-        raise NotSupportedError("dunefield: preview links are not supported (no browser auth at the Gateway)")
+        """URL + headers for a port. The token is the caller's own short-lived Dunefield-IAM token
+        (about 15 minutes, audience-bound); the Router checks sandbox:Ports and ownership."""
+        from ..core.types import PreviewLink
+
+        return PreviewLink(url=self.get_host(port), token=self._control._auth(), port=int(port))

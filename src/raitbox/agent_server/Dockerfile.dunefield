@@ -42,3 +42,10 @@ ARG DUNEFIELD_EGRESS_ALLOW=
 LABEL dunefield.network="${DUNEFIELD_NETWORK}" dunefield.egress.allow="${DUNEFIELD_EGRESS_ALLOW}"
 ARG DUNEFIELD_MODELS=
 LABEL dunefield.models="${DUNEFIELD_MODELS}"
+# Warm sandboxes the platform keeps ready for this template (capped per environment), and the user to run as.
+ARG DUNEFIELD_WARM=0
+ARG DUNEFIELD_USER=root
+LABEL dunefield.warm="${DUNEFIELD_WARM}" dunefield.user="${DUNEFIELD_USER}"
+# Startup working set for Nydus prefetch (comma-separated absolute paths; the pipeline bakes it into the bootstrap).
+ARG DUNEFIELD_PREFETCH=
+LABEL dunefield.prefetch="${DUNEFIELD_PREFETCH}"
