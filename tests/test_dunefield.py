@@ -37,7 +37,9 @@ class FakeRouter:
     def request(self, method, path, json=None, **kw):
         self.calls.append((method, path, self.sandbox_id, json))
         if path == "/v1/sandboxes" and method == "POST":
-            return FakeResp({"sandbox_id": "sbx-test-1", "state": "READY", "template": json["template"]})
+            return FakeResp(
+                {"sandbox_id": "sbx-test-1", "state": "READY", "template": json["template"]}
+            )
         if path == "/run_code":
             return FakeResp({"stdout": "42\n", "stderr": "", "results": []})
         if path == "/run_command":
@@ -50,25 +52,32 @@ class FakeRouter:
     def get(self, path, **kw):
         return self.request("GET", path, **kw)
 
-    def _auth(self):
+    def authorization(self):
         return "Dunefield-IAM v1.token"
 
 
 def test_lifecycle_through_router():
     router = FakeRouter()
-    with Sandbox.create(template="python-agent:v1", backend="dunefield", client=router, timeout=600) as sbx:
+    with Sandbox.create(
+        template="python-agent:v1", backend="dunefield", client=router, timeout=600
+    ) as sbx:
         assert sbx.sandbox_id == "sbx-test-1"
         assert sbx.run_code("print(6*7)").logs.stdout == ["42\n"]
         assert sbx.commands.run("echo hi").stdout == "hi\n"
     methods = [(m, p, s) for m, p, s, _ in router.calls]
     assert ("POST", "/v1/sandboxes", None) in methods
-    assert ("POST", "/run_code", "sbx-test-1") in methods            # data calls carry the sandbox id
-    assert ("DELETE", "/v1/sandboxes/sbx-test-1", None) in methods   # context exit deletes the sandbox
+    assert ("POST", "/run_code", "sbx-test-1") in methods  # data calls carry the sandbox id
+    assert (
+        "DELETE",
+        "/v1/sandboxes/sbx-test-1",
+        None,
+    ) in methods  # context exit deletes the sandbox
 
 
 def test_aliases_resolve_to_dunefield():
     from raitbox.core.settings import resolve_backend
-    assert {resolve_backend(n) for n in ("dunefield", "eks", "k8s", "gvisor")} == {"dunefield"}
+
+    assert {resolve_backend(n) for n in ("dunefield", "gvisor")} == {"dunefield"}
 
 
 def test_tunnel_requires_audience(monkeypatch):
@@ -79,9 +88,12 @@ def test_tunnel_requires_audience(monkeypatch):
 
 
 def test_token_signs_audience_header():
-    session = boto3.Session(aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
-                            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region_name="us-east-1")
-    token, expiry = iam_token_provider("cell-a.sandboxes.dunefield.internal", session=session)()
+    session = boto3.Session(
+        aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+        aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        region_name="us-east-1",
+    )
+    token, _expiry = iam_token_provider("cell-a.sandboxes.dunefield.internal", session=session)()
     raw = token[3:]
     url = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode()
     u = urlparse(url)
@@ -94,7 +106,42 @@ def test_token_signs_audience_header():
 
 def test_get_host_and_preview_link_use_router_port_route():
     router = FakeRouter()
-    with Sandbox.create(template="python-agent:v1", backend="dunefield", client=router, timeout=600) as sbx:
+    with Sandbox.create(
+        template="python-agent:v1", backend="dunefield", client=router, timeout=600
+    ) as sbx:
         assert sbx.get_host(8000) == "http://127.0.0.1:8443/v1/sandboxes/sbx-test-1/ports/8000"
         link = sbx.get_preview_link(8000)
-        assert link.url.endswith("/ports/8000") and link.headers["X-aws-proxy-auth"] == "Dunefield-IAM v1.token"
+        assert (
+            link.url.endswith("/ports/8000")
+            and link.headers["X-aws-proxy-auth"] == "Dunefield-IAM v1.token"
+        )
+
+
+def test_computer_use_not_supported():
+    from raitbox.core.errors import NotSupportedError
+
+    router = FakeRouter()
+    with (
+        Sandbox.create(
+            template="python-agent:v1", backend="dunefield", client=router, timeout=600
+        ) as sbx,
+        pytest.raises(NotSupportedError),
+    ):
+        sbx._backend.computer_use("screenshot", {})
+
+
+def test_gateway_url_needs_scheme_and_host(monkeypatch):
+    monkeypatch.delenv("RAITBOX_DUNEFIELD_GATEWAY_URL", raising=False)
+    with pytest.raises(InvalidArgumentException):
+        Sandbox.create(template="t", backend="dunefield", gateway_url="cell-a.example")
+
+
+def test_shares_agent_server_implementation_with_microvm():
+    from raitbox.backends._agent_server import AgentServerBackend
+    from raitbox.backends.dunefield import DunefieldBackend
+    from raitbox.backends.microvm import MicroVMBackend
+
+    assert issubclass(DunefieldBackend, AgentServerBackend) and not issubclass(
+        DunefieldBackend, MicroVMBackend
+    )
+    assert DunefieldBackend.run_command is MicroVMBackend.run_command

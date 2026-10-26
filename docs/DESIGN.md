@@ -50,7 +50,10 @@ raitbox/
     base.py              # Backend ABC / Protocol: lifecycle, exec, files, net
     agentcore_ci.py      # AgentCore Code Interpreter backend (port of reference)
     agentcore_runtime.py # AgentCore Runtime backend (invoke_agent_runtime_command + shell)
+    _agent_server.py     # AgentServerBackend: code/commands/files/pty/lsp over the agent server
     microvm.py           # Lambda MicroVMs backend (boto3 + HTTPS endpoint client)
+    dunefield.py         # Dunefield backend (Sandbox Router control API + agent server)
+    _router_http.py      # Dunefield-IAM signed HTTP client to the Sandbox Router
     _ci_invoker.py       # code-interpreter event-stream normalization
     _microvm_http.py     # signed HTTP client to the microVM endpoint + token mgmt
   snapshot.py            # S3 file-snapshot pause/resume (shared helper)
@@ -148,6 +151,18 @@ that app (`agent_server/`) and a client that speaks to it.
 - Image build tooling (`tooling/build_image.py`): zip Dockerfile+agent_server -> S3 ->
   `create_microvm_image(baseImageArn="arn:aws:lambda:<region>:aws:microvm-image:al2023-1", buildRoleArn=...)`,
   poll version state `PENDING->IN_PROGRESS->SUCCESSFUL`.
+
+### 4d. `dunefield`  (a self-hosted Dunefield cell: gVisor on EKS)
+Same agent server as 4c, reached through the cell's Sandbox Router instead of a per-VM endpoint.
+Both backends inherit the data plane (`/run_code`, `/run_command`, `/files/*`, `/commands/*`,
+`/pty/*`, `/lsp/*`) from `AgentServerBackend`; each supplies its own transport (`AgentHttp`).
+- auth -> `Authorization: Dunefield-IAM v1.<token>`: a presigned STS `GetCallerIdentity` URL
+  with a signed `x-dunefield-audience` header naming the cell (15 minutes, refreshed).
+- create -> `POST /v1/sandboxes {template, timeout, envs, metadata, resources}`, then poll the
+  agent's `/health`. get/list/timeout/kill -> `GET`/`PATCH`/`DELETE /v1/sandboxes[/{id}]`.
+- data calls -> the agent-server routes on the Router with header `X-Sandbox-ID`.
+- `get_host(port)`/`preview_link` -> `/v1/sandboxes/{id}/ports/{port}` on the Router, authorized
+  with the caller's own token. `computer_use` -> `NotSupportedError` (no desktop template).
 
 ## 5. Config & backend selection (`_config.py`)
 - `backend=` kwarg on `Sandbox.create()`, else env `RAITBOX_BACKEND`

@@ -53,7 +53,7 @@ behave the same.
 RaitBox sits *on top of* Lambda MicroVMs and Bedrock AgentCore; it isn't a
 replacement, it's what makes them ergonomic and interchangeable:
 
-- **Unification** — one API across three substrates. Raw, each is a different
+- **Unification** — one API across four substrates. Raw, each is a different
   client, auth flow, and execution model; here they're one `Sandbox` you retarget
   with `backend=`.
 - **No boilerplate** — MicroVM provisioning/polling/auth-token/health-wait/
@@ -72,9 +72,9 @@ replacement, it's what makes them ergonomic and interchangeable:
 
 ---
 
-## 3. Backends — the three substrates
+## 3. Backends — the four substrates
 
-The same API, three different AWS compute types. Choose with `backend=` on
+The same API, four different compute types: three managed AWS services and self-hosted Dunefield. Choose with `backend=` on
 `Sandbox.create()` or the `RAITBOX_BACKEND` env var.
 
 | Backend | AWS service | Best at | Isolation | Inbound network | Notes |
@@ -82,11 +82,13 @@ The same API, three different AWS compute types. Choose with `backend=` on
 | `agentcore-ci` *(default)* | Bedrock AgentCore Code Interpreter | `run_code` (data/analysis) | Firecracker microVM | ❌ | Stateful Jupyter kernel; scientific libs preinstalled; no internet |
 | `agentcore-runtime` | Bedrock AgentCore Runtime | shell `commands`, interactive shell | per-session microVM | ❌ | Needs a deployed runtime (`agentRuntimeArn`); managed minimal container |
 | `microvm` | AWS Lambda MicroVMs | full OS, installing packages, servers | Firecracker microVM | ✅ (`get_host`) | Internet egress; `git`/`pip`; needs a built image ARN |
+| `dunefield` | Dunefield cell (EKS, self-hosted) | many sandboxes in your VPC, warm pools, models without credentials | gVisor (user-space kernel) | ✅ (`get_host`, via the Router) | Needs a Dunefield cell and a registered template; egress only if the template allows it |
 
 **How to pick:** start on `agentcore-ci` (zero setup beyond AWS creds). Use
 `microvm` when you need internet, to install packages, run `git`, or expose a
 port. Use `agentcore-runtime` when you have a deployed agent runtime and want its
-persistent shell.
+persistent shell. Use `dunefield` when you operate a Dunefield cell: sandboxes run in
+your VPC, start from warm pools, and reach models through the cell without credentials.
 
 **Capability, not magic:** if a backend can't do something (e.g. `get_host` on
 AgentCore, or `git apply` where there's no `git`), RaitBox raises

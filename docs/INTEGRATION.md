@@ -169,6 +169,38 @@ Notes:
 
 ---
 
+## 4. `dunefield` — a Dunefield cell (gVisor on EKS)
+
+Needs a running Dunefield cell, network reach to its Sandbox Router (inside the VPC, or a
+loopback tunnel through the cell's SSM bastion), and a READY template. Nothing else is
+provisioned by RaitBox; the operator of the cell grants your IAM principal access.
+
+```bash
+export RAITBOX_IT_DUNEFIELD_GATEWAY_URL=https://127.0.0.1:18443   # tunnel, or https://<gateway host>
+export RAITBOX_IT_DUNEFIELD_AUDIENCE=<cell host>                   # required with a tunnel
+export RAITBOX_IT_DUNEFIELD_TLS_SERVER_NAME=<cell host>            # pin TLS through the tunnel
+export RAITBOX_IT_DUNEFIELD_CA_BUNDLE=/path/to/gateway-ca.pem      # private Gateway certificate
+export RAITBOX_IT_DUNEFIELD_TEMPLATE=python-agent:vN
+export RAITBOX_IT_SNAPSHOT_BUCKET=...                              # optional, enables pause/resume
+pytest -m integration tests/integration/test_dunefield_live.py -v
+```
+
+Notes:
+- Authentication is a presigned STS `GetCallerIdentity` token with a signed
+  `x-dunefield-audience` header naming the cell. Tokens last 15 minutes and are refreshed
+  automatically; there are no API keys.
+- Templates are built from `src/raitbox/agent_server/Dockerfile.dunefield` by Dunefield's
+  template pipeline. `dunefield.*` image labels select the network profile, egress allowlist,
+  model access, warm-pool size, user (`root` or a non-root user) and prefetch list.
+- Sandboxes have no egress unless the template allows it, so network-dependent tests skip.
+  `pause()`/`resume()` work: files are read through the agent and written to S3 from the
+  client, with the caller's credentials.
+- Not supported: `computer_use` (no desktop template yet) and EFS `volume_mounts=`.
+- These tests need access to a private cell, so they run only where that access exists
+  (not in public CI).
+
+---
+
 ## Cost & safety
 
 Every integration test creates a short-lived session and tears it down. Prefer a

@@ -8,7 +8,8 @@
 RaitBox gives LLM agents **disposable, isolated computers on AWS** — a
 filesystem, a shell, and a code kernel an agent can use without ever touching
 your machine or your data. One Python API targets **three AWS compute engines**
-(Bedrock AgentCore Code Interpreter, AgentCore Runtime, and Lambda MicroVMs), and
+(Bedrock AgentCore Code Interpreter, AgentCore Runtime, and Lambda MicroVMs) plus
+self-hosted [Dunefield](#dunefield-self-hosted-on-eks) cells (gVisor on EKS), and
 that API matches the [E2B](https://e2b.dev) SDK — so agent code written for E2B
 runs on RaitBox by changing a single import. Everything executes **inside your own
 AWS account**, under your IAM, region, and billing; there is no RaitBox service
@@ -36,14 +37,15 @@ with Sandbox() as sbx:                                     # defaults to agentco
 New to sandboxes, backends, or the eval/RL patterns here? Start with
 [docs/CONCEPTS.md](docs/CONCEPTS.md) — it builds the mental model from scratch.
 
-## Three compute engines, one API
+## Four compute engines, one API
 
 ```
 your code ─▶ Sandbox / AsyncSandbox ─▶ backend ─▶ AWS compute
               files · commands · run_code   │
                                             ├─ agentcore-ci      Bedrock AgentCore Code Interpreter
                                             ├─ agentcore-runtime Bedrock AgentCore Runtime
-                                            └─ microvm           AWS Lambda MicroVMs (full-OS VM)
+                                            ├─ microvm           AWS Lambda MicroVMs (full-OS VM)
+                                            └─ dunefield         Dunefield cell (gVisor on EKS, self-hosted)
 ```
 
 You program against one small surface; a **backend** maps it onto a specific AWS
@@ -56,11 +58,36 @@ no code change. When a backend can't do something, RaitBox raises
 | `agentcore-ci` *(default)* | AgentCore Code Interpreter | stateful `run_code`, files; zero setup | Code Interpreter id (default `aws.codeinterpreter.v1`) | ❌ |
 | `agentcore-runtime` | AgentCore Runtime | shell `commands`, interactive shell | an existing `agentRuntimeArn` | ❌ |
 | `microvm` | AWS Lambda MicroVMs | full OS, internet, packages, servers | a built MicroVM image ARN | ✅ (`get_host`) |
+| `dunefield` | Dunefield cell (EKS + gVisor), self-hosted | high-density sandboxes in your VPC, warm pools, model access without credentials | a registered template `name:vN` | ✅ (`get_host`, via the Router) |
 
 **Rule of thumb:** start on `agentcore-ci` (nothing to provision). Move to
 `microvm` when you need a real OS — internet egress, `pip`/`git`, background
 servers, or an inbound port. Use `agentcore-runtime` when you already run a
-deployed agent runtime and want its persistent shell.
+deployed agent runtime and want its persistent shell. Use `dunefield` when you run
+a Dunefield cell and want many sandboxes inside your own VPC (see below).
+
+### Dunefield (self-hosted on EKS)
+
+Dunefield runs RaitBox's agent server in gVisor
+sandboxes on EKS behind a private Sandbox Router. The backend authenticates with your AWS
+credentials (a presigned STS token bound to the cell; no API keys) and needs:
+
+| Setting (kwarg / env var) | Meaning |
+|---|---|
+| `gateway_url` / `RAITBOX_DUNEFIELD_GATEWAY_URL` | Router URL: the cell's private Gateway, or a loopback tunnel to it |
+| `audience` / `RAITBOX_DUNEFIELD_AUDIENCE` | cell host name; defaults to the gateway host, required for tunnels |
+| `tls_server_name` / `RAITBOX_DUNEFIELD_TLS_SERVER_NAME` | pin the TLS name (and `Host`) when tunnelling |
+| `ca_bundle` / `RAITBOX_DUNEFIELD_CA_BUNDLE` | CA bundle for a privately issued Gateway certificate |
+| `template` / `RAITBOX_DUNEFIELD_TEMPLATE` | default template (`name:vN`, built by Dunefield's template pipeline) |
+
+```python
+sbx = Sandbox.create(backend="dunefield", template="python-agent:v3",
+                     gateway_url="https://use1-dev.sandboxes.dunefield.internal")
+```
+
+Templates are built from `agent_server/Dockerfile.dunefield` and registered by Dunefield's
+pipeline; network egress and model access are template labels, so sandboxes have no egress
+unless the template allows it. `envs=` skips the warm pool (a cold start of a few seconds).
 
 ## What you get beyond a raw sandbox
 
@@ -117,27 +144,27 @@ the unified `E2B(...)` client.
 
 ## Capability matrix
 
-| Capability | `agentcore-ci` | `agentcore-runtime` | `microvm` |
-|---|---|---|---|
-| `run_code` | ✅ stateful IPython kernel | ✅ one-shot | ✅ stateful namespace |
-| `create_code_context` (per-context state, one sandbox) | ✅ fresh kernel (`clearContext`) | 🟡 stateless per call | 🟡 shared namespace |
-| `commands.run` (foreground) | ✅ | ✅ streamed | ✅ |
-| `commands.run(background=True)` → `CommandHandle` | ❌ | ❌ | ✅ real processes |
-| `commands.list/kill/send_stdin/connect` | ❌ | ❌ | ✅ |
-| `files.*` (read/write/list/exists/get_info/remove/rename/make_dir) | ✅ (`rename`/`make_dir` via shell) | ✅ over shell | ✅ |
-| `files.watch_dir` → `WatchHandle` | ✅ polling | ✅ polling | ✅ polling |
-| `pause()` / `resume()` (S3 file snapshot) | ✅ | ✅ | ✅ |
-| interactive shell (`open_shell`, async) | ❌ | ✅ WebSocket | ❌ |
-| `pty.create/send_stdin/resize/kill` (sync) | ❌ | ❌ | ✅ real TTY |
-| `get_host(port)` | ❌ | ❌ | ✅ |
-| `Sandbox.list()` | ✅ sessions | ❌ | ✅ |
-| `AsyncSandbox` | ✅ | ✅ | ✅ |
-| `get_preview_link(port)` *(extension)* | ❌ | ❌ | ✅ signed proxy URL |
-| `create_volume` / `volume_mounts=` *(extension)* | ❌ | ❌ | ✅ EFS |
-| `secrets={...}` injection *(extension)* | ✅ | ✅ | ✅ |
-| `lsp.create_server(...)` *(extension)* | ❌ | ❌ | ✅ pylsp / tsserver |
-| `get_terminal_link(...)` web terminal *(extension)* | ❌ | ❌ | ✅ ttyd + preview |
-| `computer_use.*` desktop automation *(extension)* | ❌ | ❌ | ✅ Xvfb + xdotool |
+| Capability | `agentcore-ci` | `agentcore-runtime` | `microvm` | `dunefield` |
+|---|---|---|---|---|
+| `run_code` | ✅ stateful IPython kernel | ✅ one-shot | ✅ stateful namespace | ✅ stateful namespace |
+| `create_code_context` (per-context state, one sandbox) | ✅ fresh kernel (`clearContext`) | 🟡 stateless per call | 🟡 shared namespace | 🟡 shared namespace |
+| `commands.run` (foreground) | ✅ | ✅ streamed | ✅ | ✅ |
+| `commands.run(background=True)` → `CommandHandle` | ❌ | ❌ | ✅ real processes | ✅ real processes |
+| `commands.list/kill/send_stdin/connect` | ❌ | ❌ | ✅ | ✅ |
+| `files.*` (read/write/list/exists/get_info/remove/rename/make_dir) | ✅ (`rename`/`make_dir` via shell) | ✅ over shell | ✅ | ✅ |
+| `files.watch_dir` → `WatchHandle` | ✅ polling | ✅ polling | ✅ polling | ✅ polling |
+| `pause()` / `resume()` (S3 file snapshot) | ✅ | ✅ | ✅ | ✅ (from the client) |
+| interactive shell (`open_shell`, async) | ❌ | ✅ WebSocket | ❌ | ❌ |
+| `pty.create/send_stdin/resize/kill` (sync) | ❌ | ❌ | ✅ real TTY | ✅ real TTY |
+| `get_host(port)` | ❌ | ❌ | ✅ | ✅ Router port route (IAM token) |
+| `Sandbox.list()` | ✅ sessions | ❌ | ✅ | ✅ |
+| `AsyncSandbox` | ✅ | ✅ | ✅ | ✅ |
+| `get_preview_link(port)` *(extension)* | ❌ | ❌ | ✅ signed proxy URL | ✅ caller's IAM token |
+| `create_volume` / `volume_mounts=` *(extension)* | ❌ | ❌ | ✅ EFS | ❌ |
+| `secrets={...}` injection *(extension)* | ✅ | ✅ | ✅ | ✅ |
+| `lsp.create_server(...)` *(extension)* | ❌ | ❌ | ✅ pylsp / tsserver | ✅ pylsp (in the template) |
+| `get_terminal_link(...)` web terminal *(extension)* | ❌ | ❌ | ✅ ttyd + preview | 🟡 needs `ttyd` in the template |
+| `computer_use.*` desktop automation *(extension)* | ❌ | ❌ | ✅ Xvfb + xdotool | ❌ no desktop template yet |
 
 **Reading it:** ✅ supported · 🟡 supported with a caveat · ❌ not available. An
 ❌ is either a **substrate limit** (the service can't do it — e.g. AgentCore has
@@ -163,7 +190,7 @@ Behavioral highlights:
 - **`secrets={ENV: "secretsmanager:id::key" | "ssm:name" | literal}`** resolves via
   the credential chain and merges into `envs` (explicit `envs` win; nothing is
   logged). On `agentcore-ci` secrets reach both `run_code` and `commands.run`.
-- **Extensions** are `microvm`-only unless noted: `get_preview_link` mints a
+- **Extensions** are `microvm`-only unless noted (see the matrix for `dunefield`): `get_preview_link` mints a
   short-lived, port-scoped token + `X-aws-proxy-*` headers; `volume_mounts=` NFS-
   mounts an existing EFS filesystem (bring-your-own — RaitBox never provisions
   storage); `pty`, `lsp`, and `computer_use` drive real in-VM processes.
@@ -281,8 +308,9 @@ src/raitbox/
   client/        E2B-compatible facades — sync.py (Sandbox), aio.py (AsyncSandbox)
   core/          types · errors · settings · session pool · handles · persistence ·
                  secrets · warm_pool · observability · events · audit
-  backends/      agentcore_ci · agentcore_runtime · microvm (+ HTTP transport)
-  agent_server/  FastAPI app baked into the MicroVM image
+  backends/      agentcore_ci · agentcore_runtime · microvm · dunefield, the shared
+                 agent-server client (_agent_server) and HTTP transports
+  agent_server/  FastAPI app baked into the MicroVM image and Dunefield templates
   tooling/       build_image.py · image.py (declarative image builder)
   mcp/           MCP server exposing sandboxes as tools
 tests/           unit tests (no AWS) + tests/integration (opt-in, live)

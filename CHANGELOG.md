@@ -41,6 +41,19 @@ All notable changes to RaitBox are documented here. The format follows
   deny-by-default network limits (`internet_access=`).
 - `--egress-connector` flag on the image-build CLI.
 
+### Added — `dunefield` backend
+- `backend="dunefield"` (alias `gvisor`): gVisor sandboxes on EKS through a Dunefield Sandbox
+  Router, authenticated with the caller's AWS credentials (presigned STS token bound to the
+  cell). Code, commands, files, PTY, LSP, `get_host`/`get_preview_link`, `set_timeout`,
+  `Sandbox.list()`/`connect()` and `pause()`/`resume()`. Settings via kwargs or
+  `RAITBOX_DUNEFIELD_*`.
+- `agent_server/Dockerfile.dunefield`: template base for Dunefield's pipeline.
+
+### Changed
+- The agent-server HTTP contract (code, commands, files, PTY, LSP) moved from `microvm` into a
+  shared `AgentServerBackend`; `microvm` and `dunefield` both build on it. No behavior change
+  for `microvm`.
+
 ### Notes
 - API shapes validated against the live botocore service models, and all backends
   plus the extensions were exercised end-to-end against a live AWS account.

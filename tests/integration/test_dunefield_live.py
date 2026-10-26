@@ -54,8 +54,13 @@ def template():
 
 @pytest.fixture(scope="module")
 def sandbox(dkw, template):
-    sbx = Sandbox.create(template=template, timeout=1200, envs={"IT_ENV": "from-create"},
-                         metadata={"suite": "it"}, **dkw)
+    sbx = Sandbox.create(
+        template=template,
+        timeout=1200,
+        envs={"IT_ENV": "from-create"},
+        metadata={"suite": "it"},
+        **dkw,
+    )
     try:
         yield sbx
     finally:
@@ -63,6 +68,7 @@ def sandbox(dkw, template):
 
 
 # -- execution -----------------------------------------------------------------
+
 
 def test_runs_under_gvisor(sandbox):
     assert "gvisor" in sandbox.commands.run("uname -r").stdout
@@ -125,6 +131,7 @@ def test_code_contexts(sandbox):
 
 # -- filesystem ------------------------------------------------------------------
 
+
 def test_files_round_trip(sandbox):
     sandbox.files.write("/workspace/it/a.txt", "hello")
     sandbox.files.write("/workspace/it/b.bin", bytes(range(256)))
@@ -135,15 +142,23 @@ def test_files_round_trip(sandbox):
     assert sandbox.files.exists("/workspace/it/a.txt")
     assert sandbox.files.get_info("/workspace/it/a.txt").type == "file"
     sandbox.files.rename("/workspace/it/a.txt", "/workspace/it/c.txt")
-    assert not sandbox.files.exists("/workspace/it/a.txt") and sandbox.files.exists("/workspace/it/c.txt")
+    assert not sandbox.files.exists("/workspace/it/a.txt") and sandbox.files.exists(
+        "/workspace/it/c.txt"
+    )
     sandbox.files.remove("/workspace/it/c.txt")
     assert not sandbox.files.exists("/workspace/it/c.txt")
 
 
 def test_write_files_batch(sandbox):
-    sandbox.files.write_files([{"path": "/workspace/batch/1.txt", "data": "one"},
-                               {"path": "/workspace/batch/2.txt", "data": "two"}])
-    assert sandbox.commands.run("cat /workspace/batch/1.txt /workspace/batch/2.txt").stdout == "onetwo"
+    sandbox.files.write_files(
+        [
+            {"path": "/workspace/batch/1.txt", "data": "one"},
+            {"path": "/workspace/batch/2.txt", "data": "two"},
+        ]
+    )
+    assert (
+        sandbox.commands.run("cat /workspace/batch/1.txt /workspace/batch/2.txt").stdout == "onetwo"
+    )
 
 
 def test_watch_dir(sandbox):
@@ -163,8 +178,10 @@ def test_watch_dir(sandbox):
 
 
 def test_git_local_repository(sandbox):
-    sandbox.commands.run("git init -q /workspace/repo && git -C /workspace/repo config user.email it@example.com "
-                         "&& git -C /workspace/repo config user.name it")
+    sandbox.commands.run(
+        "git init -q /workspace/repo && git -C /workspace/repo config user.email it@example.com "
+        "&& git -C /workspace/repo config user.name it"
+    )
     sandbox.files.write("/workspace/repo/readme.md", "# it")
     sandbox.git.add(".", cwd="/workspace/repo")
     sandbox.git.commit("initial", cwd="/workspace/repo")
@@ -177,23 +194,31 @@ def test_git_clone_needs_network():
 
 def test_lsp(sandbox):
     if sandbox.commands.run("command -v pylsp || true").stdout.strip() == "":
-        pytest.skip("template image has no language server (pylsp); add it to the template to test LSP")
+        pytest.skip(
+            "template image has no language server (pylsp); add it to the template to test LSP"
+        )
     sandbox.files.write("/workspace/lsp/m.py", "def hello():\n    return 1\n")
     with sandbox.lsp.create_server("python", project_root="/workspace/lsp") as srv:
         assert any(s.name == "hello" for s in srv.document_symbols("/workspace/lsp/m.py"))
 
 
 def test_computer_use_needs_desktop_template():
-    pytest.skip("computer use needs a desktop template image (Xvfb + xdotool), not part of python-agent")
+    pytest.skip(
+        "computer use needs a desktop template image (Xvfb + xdotool), not part of python-agent"
+    )
 
 
 # -- lifecycle -------------------------------------------------------------------
+
 
 def test_info_list_connect_timeout(sandbox, dkw):
     info = sandbox.get_info()
     assert info.sandbox_id == sandbox.sandbox_id and info.state == "READY"
     assert sandbox.is_running()
-    assert any(i.sandbox_id == sandbox.sandbox_id for i in Sandbox.list(query={"metadata": {"suite": "it"}}, **dkw))
+    assert any(
+        i.sandbox_id == sandbox.sandbox_id
+        for i in Sandbox.list(query={"metadata": {"suite": "it"}}, **dkw)
+    )
     sandbox.set_timeout(1500)
     again = Sandbox.connect(sandbox.sandbox_id, **dkw)
     assert again.commands.run("echo connected").stdout.strip() == "connected"
@@ -234,6 +259,7 @@ def test_async_sandbox(dkw, template):
             out = (await sbx.commands.run("cat /workspace/async.txt")).stdout
             code = (await sbx.run_code("print(1 + 1)")).logs.stdout
             return out, code
+
     out, code = asyncio.run(run())
     assert out == "async-ok" and code == ["2\n"]
 
@@ -242,8 +268,10 @@ def test_concurrent_sandboxes(dkw, template):
     async def one(i):
         async with await AsyncSandbox.create(template=template, timeout=600, **dkw) as sbx:
             return (await sbx.run_code(f"print({i} * {i})")).logs.stdout
+
     async def many():
         return await asyncio.gather(*(one(i) for i in range(4)))
+
     assert asyncio.run(many()) == [[f"{i * i}\n"] for i in range(4)]
 
 
